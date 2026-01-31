@@ -3,10 +3,79 @@ import re
 import cocoindex
 from numpy.typing import NDArray
 import numpy as np
+from tree_sitter_languages import get_language, get_parser
 
 # -------------------------------
-# Shared transforms
+# AST Extraction Logic
 # -------------------------------
+
+def get_ast_metadata(code: str, language_name: str):
+    """
+    Extracts definitions and calls from code using tree-sitter.
+    """
+    try:
+        # Normalize language names for tree-sitter
+        lang_map = {
+            "python": "python",
+            "javascript": "javascript",
+            "typescript": "typescript",
+            "rust": "rust",
+            "go": "go",
+            "java": "java",
+            "cpp": "cpp",
+            "c": "c",
+        }
+        
+        l_key = None
+        lang_lower = str(language_name).lower()
+        for k, v in lang_map.items():
+            if k in lang_lower:
+                l_key = v
+                break
+        
+        if not l_key:
+            return {"symbols": [], "calls": []}
+
+        parser = get_parser(l_key)
+        tree = parser.parse(bytes(code, "utf8"))
+        
+        symbols = set()
+        calls = set()
+        
+        # Simple queries for definitions across languages (best effort)
+        # Note: In a real prod sys we'd use language-specific queries.
+        # But this generic approach covers most 'name' identifiers in defs.
+        
+        def traverse(node):
+            # Definitions check (very basic heuristic)
+            if node.type in ["function_definition", "class_definition", "method_definition", "function_item", "struct_item", "trait_item"]:
+                # Look for name child
+                for child in node.children:
+                    if "name" in child.type or child.type == "identifier":
+                        symbols.add(code[child.start_byte:child.end_byte])
+                        break
+            
+            # Calls check
+            if node.type in ["call", "call_expression", "invocation", "function_call"]:
+                # Look for the function name
+                for child in node.children:
+                    if child.type in ["identifier", "field_identifier", "member_expression"]:
+                        calls.add(code[child.start_byte:child.end_byte])
+                        break
+                        
+            for child in node.children:
+                traverse(child)
+                
+        traverse(tree.root_node)
+        return {"symbols": sorted(list(symbols)), "calls": sorted(list(calls))}
+    except Exception as e:
+        print(f"AST parsing failed for {language_name}: {e}")
+        return {"symbols": [], "calls": []}
+
+@cocoindex.op.function()
+def extract_code_metadata(code: str, language: str) -> dict:
+    """Uses tree-sitter to extract rich structural metadata."""
+    return get_ast_metadata(code, language)
 
 @cocoindex.transform_flow()
 def code_to_embedding(
@@ -17,38 +86,6 @@ def code_to_embedding(
             model="sentence-transformers/all-MiniLM-L6-v2"
         )
     )
-
-@cocoindex.op.function()
-def extract_symbols(code: str, language: str) -> list[str]:
-    """Simple regex-based symbol extraction for AST hybrid flow."""
-    patterns = {
-        "python": [r"^(?:class|def)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
-        "javascript": [r"(?:class|function)\s+([a-zA-Z_][a-zA-Z0-9_]*)", r"(?:const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*="],
-        "typescript": [r"(?:class|function|interface|type|enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
-        "rust": [r"(?:fn|struct|enum|trait|type|mod)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
-        "go": [r"(?:func|type|struct|interface)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
-        "java": [r"(?:class|interface|enum|@interface)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
-        "cpp": [r"(?:class|struct|enum|namespace)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
-    }
-    
-    symbols = set()
-    lang_lower = str(language).lower() if language else ""
-    # Normalize language names
-    if "python" in lang_lower: l_key = "python"
-    elif "javascript" in lang_lower: l_key = "javascript"
-    elif "typescript" in lang_lower: l_key = "typescript"
-    elif "rust" in lang_lower: l_key = "rust"
-    elif "go" in lang_lower: l_key = "go"
-    elif "java" in lang_lower: l_key = "java"
-    elif "c++" in lang_lower or "cpp" in lang_lower: l_key = "cpp"
-    else: l_key = None
-
-    if l_key and l_key in patterns:
-        for pattern in patterns[l_key]:
-            matches = re.findall(pattern, code, re.MULTILINE)
-            symbols.update(matches)
-    
-    return sorted(list(symbols))
 
 # -------------------------------
 # Indexing flow
@@ -96,8 +133,10 @@ def code_index_flow(
         )
 
         with f["chunks"].row() as c:
-            # Extract symbols for this chunk
-            c["symbols"] = c["text"].transform(extract_symbols, language=f["language"])
+            # Extract symbols and calls for this chunk
+            c["meta"] = c["text"].transform(extract_code_metadata, language=f["language"])
+            c["symbols"] = c["meta"].transform(lambda m: m["symbols"])
+            c["calls"] = c["meta"].transform(lambda m: m["calls"])
 
             # Generate embedding
             c["embedding"] = c["text"].call(code_to_embedding)
@@ -116,6 +155,7 @@ def code_index_flow(
                 code=c["text"],
                 embedding=c["embedding"],
                 symbols=c["symbols"],
+                calls=c["calls"],
                 repo=repo_name,
                 branch=branch_name,
                 index_id=index_id,

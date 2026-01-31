@@ -51,6 +51,7 @@ async def search(
             "start",
             "end",
             "symbols",
+            "calls",
             "embedding" <=> %s AS distance
         FROM {table_name}
         {where_sql}
@@ -66,21 +67,44 @@ async def search(
             cur.execute(sql, params)
             rows = cur.fetchall()
 
+    results = []
+    query_terms = set(query.lower().split())
+
+    for r in rows:
+        filename, lang, code, start, end, symbols, calls, dist = r
+        score = 1.0 - dist
+        
+        # Hybrid Reranking Logic: 
+        # Boost if query terms exactly match definitions (symbols) or calls
+        structural_match = False
+        if symbols:
+            if any(term in [s.lower() for s in symbols] for term in query_terms):
+                score += 0.1
+                structural_match = True
+        if calls:
+             if any(term in [c.lower() for c in calls] for term in query_terms):
+                score += 0.05
+                structural_match = True
+        
+        results.append({
+            "filename": filename,
+            "language": lang,
+            "code": code,
+            "start": start,
+            "end": end,
+            "symbols": symbols,
+            "calls": calls,
+            "score": score,
+            "structural_boost": structural_match
+        })
+
+    # Sort again after boosting
+    results.sort(key=lambda x: x["score"], reverse=True)
+
     return cocoindex.QueryOutput(
         query_info=cocoindex.QueryInfo(
             embedding=query_vector,
             similarity_metric=cocoindex.VectorSimilarityMetric.COSINE_SIMILARITY,
         ),
-        results=[
-            {
-                "filename": r[0],
-                "language": r[1],
-                "code": r[2],
-                "start": r[3],
-                "end": r[4],
-                "symbols": r[5],
-                "score": 1.0 - r[6],
-            }
-            for r in rows
-        ],
+        results=results[:TOP_K],
     )

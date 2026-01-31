@@ -7,7 +7,8 @@ CodeMind is a high-performance backend system designed to index source code repo
 ### 1. Advanced Code Indexing
 - **Recursive Discovery**: Recursively indexes repository files including `.py`, `.md`, `.rs`, `.toml`, `.js`, `.java`, `.go`, and more.
 - **Semantic Chunking**: Uses Tree-sitter aware recursive splitting to maintain code context within chunks.
-- **Symbol Extraction**: Automatically identifies classes, functions, and interfaces to enhance search relevance.
+- **Full AST Parsing**: Uses `tree-sitter` to perform deep analysis of definitions (classes, functions) and call sites.
+- **Structural Metadata**: Captures symbols, function calls, and scopes to enable advanced structural search.
 - **Vector Embeddings**: Generates high-quality embeddings using `all-MiniLM-L6-v2`.
 - **Incremental Updates**: Smart re-indexing that only updates changed files, ensuring efficiency.
 
@@ -18,6 +19,8 @@ CodeMind is a high-performance backend system designed to index source code repo
 
 ### 3. Semantic Search API
 - **NLP Queries**: Search code using natural language instead of just keywords.
+- **Hybrid Retrieval**: Combines vector similarity with structural metadata (symbols and calls) for higher precision.
+- **Structural Reranking**: Boosts results that contain exact matches for searched symbols or critical function calls.
 - **Metadata Filtering**: Filter results by repository, branch, or specific index run IDs.
 - **Rich Results**: Returns snippets with file paths, line ranges, and relevance scores.
 
@@ -70,8 +73,8 @@ flowchart TD
     
     Process --> Lang[Detect Language]
     Lang --> Chunk[Recursive Chunking]
-    Chunk --> Symbols[Extract Symbols]
-    Symbols --> Embed[Generate Vector Embedding]
+    Chunk --> AST[Full AST Parsing]
+    AST --> Embed[Generate Vector Embedding]
     Embed --> Upsert[Upsert to pgvector]
     
     Upsert --> Next{More Files?}
