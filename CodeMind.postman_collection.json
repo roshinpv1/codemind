@@ -1,0 +1,136 @@
+{
+    "info": {
+        "_postman_id": "8a8f8b8c-1234-4567-890a-112233445566",
+        "name": "CodeMind API",
+        "description": "Collection for CodeMind backend - Indexing, Search, and RAG Execute.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Index Repository",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"repo_url\": \"https://github.com/fastapi/fastapi.git\",\n  \"branch\": \"master\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/index",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "index"
+                    ]
+                },
+                "description": "Clones a repository and triggers indexing of source code."
+            },
+            "response": []
+        },
+        {
+            "name": "Semantic Search",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"query\": \"How are flows defined?\",\n  \"repo\": \"cocoindex-python\",\n  \"branch\": \"main\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/search",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "search"
+                    ]
+                },
+                "description": "Performs semantic similarity search over indexed code chunks."
+            },
+            "response": []
+        },
+        {
+            "name": "Execute (RAG Reasoning)",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"tenant\": \"demo\",\n  \"repo\": \"cocoindex-python\",\n  \"branch\": \"main\",\n  \"instruction\": \"Explain the architecture of the indexing pipeline\",\n  \"context_query\": \"flow definition and indexing logic\",\n  \"constraints\": {\n    \"json\": false\n  }\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/execute",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "execute"
+                    ]
+                },
+                "description": "Retrieves context via search and uses LLM to reason/execute instructions."
+            },
+            "response": []
+        },
+        {
+            "name": "Reset System",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "{{baseUrl}}/reset",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "reset"
+                    ]
+                },
+                "description": "Wipes all database tables and deletes the local codebase clones."
+            },
+            "response": []
+        }
+    ],
+    "event": [
+        {
+            "listen": "prerequest",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    ""
+                ]
+            }
+        },
+        {
+            "listen": "test",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    ""
+                ]
+            }
+        }
+    ],
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:8000",
+            "type": "string"
+        }
+    ]
+}

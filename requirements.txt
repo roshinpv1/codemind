@@ -1,0 +1,4 @@
+cocoindex[embeddings]>=0.3.28,<1
+python-dotenv>=1.0.1
+pgvector>=0.4.1
+psycopg[binary,pool]
