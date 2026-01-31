@@ -1,10 +1,11 @@
 import os
+import re
 import cocoindex
 from numpy.typing import NDArray
 import numpy as np
 
 # -------------------------------
-# Shared embedding transform
+# Shared transforms
 # -------------------------------
 
 @cocoindex.transform_flow()
@@ -16,6 +17,38 @@ def code_to_embedding(
             model="sentence-transformers/all-MiniLM-L6-v2"
         )
     )
+
+@cocoindex.op.function()
+def extract_symbols(code: str, language: str) -> list[str]:
+    """Simple regex-based symbol extraction for AST hybrid flow."""
+    patterns = {
+        "python": [r"^(?:class|def)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
+        "javascript": [r"(?:class|function)\s+([a-zA-Z_][a-zA-Z0-9_]*)", r"(?:const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*="],
+        "typescript": [r"(?:class|function|interface|type|enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
+        "rust": [r"(?:fn|struct|enum|trait|type|mod)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
+        "go": [r"(?:func|type|struct|interface)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
+        "java": [r"(?:class|interface|enum|@interface)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
+        "cpp": [r"(?:class|struct|enum|namespace)\s+([a-zA-Z_][a-zA-Z0-9_]*)"],
+    }
+    
+    symbols = set()
+    lang_lower = str(language).lower() if language else ""
+    # Normalize language names
+    if "python" in lang_lower: l_key = "python"
+    elif "javascript" in lang_lower: l_key = "javascript"
+    elif "typescript" in lang_lower: l_key = "typescript"
+    elif "rust" in lang_lower: l_key = "rust"
+    elif "go" in lang_lower: l_key = "go"
+    elif "java" in lang_lower: l_key = "java"
+    elif "c++" in lang_lower or "cpp" in lang_lower: l_key = "cpp"
+    else: l_key = None
+
+    if l_key and l_key in patterns:
+        for pattern in patterns[l_key]:
+            matches = re.findall(pattern, code, re.MULTILINE)
+            symbols.update(matches)
+    
+    return sorted(list(symbols))
 
 # -------------------------------
 # Indexing flow
@@ -29,14 +62,11 @@ def code_index_flow(
     
     codebase_path = os.environ.get("CODEBASE_PATH")
     if not codebase_path or not os.path.exists(codebase_path):
-        # We might be in a state where codebase path is not yet set (e.g. startup)
-        # However, the flow compilation requires valid source structure.
-        # But for 'update', it will read env.
         pass
 
     scope["files"] = flow.add_source(
         cocoindex.sources.LocalFile(
-            path=os.environ.get("CODEBASE_PATH", "/tmp/placeholder"), # Default to avoid compile error if env missing during import
+            path=os.environ.get("CODEBASE_PATH", "/tmp/placeholder"), 
             included_patterns=[
                 "**/*.py", "**/*.md", "**/*.mdx", "**/*.rs", "**/*.toml",
                 "**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx", 
@@ -66,6 +96,9 @@ def code_index_flow(
         )
 
         with f["chunks"].row() as c:
+            # Extract symbols for this chunk
+            c["symbols"] = c["text"].transform(extract_symbols, language=f["language"])
+
             # Generate embedding
             c["embedding"] = c["text"].call(code_to_embedding)
 
@@ -82,6 +115,7 @@ def code_index_flow(
                 end=c["end"],
                 code=c["text"],
                 embedding=c["embedding"],
+                symbols=c["symbols"],
                 repo=repo_name,
                 branch=branch_name,
                 index_id=index_id,

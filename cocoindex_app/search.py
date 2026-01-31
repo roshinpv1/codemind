@@ -50,6 +50,7 @@ async def search(
             "code",
             "start",
             "end",
+            "symbols",
             "embedding" <=> %s AS distance
         FROM {table_name}
         {where_sql}
@@ -77,7 +78,8 @@ async def search(
                 "code": r[2],
                 "start": r[3],
                 "end": r[4],
-                "score": 1.0 - r[5],
+                "symbols": r[5],
+                "score": 1.0 - r[6],
             }
             for r in rows
         ],

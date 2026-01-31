@@ -10,8 +10,10 @@ class ContextEngine:
 
         blocks = []
         for r in results.results:
+            symbols_str = ", ".join(r['symbols']) if r.get('symbols') else "None"
             block = (
                 f"--- File: {r['filename']} (Relevance Score: {r['score']:.4f}) ---\n"
+                f"Symbols: {symbols_str}\n"
                 f"Lines: {r['start']} to {r['end']}\n"
                 f"{r['code']}\n"
             )
