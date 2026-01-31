@@ -11,8 +11,9 @@ class ContextEngine:
         blocks = []
         for r in results.results:
             block = (
-                f"[{r['filename']}:{r['start']}-{r['end']}]\n"
-                f"{r['code']}"
+                f"--- File: {r['filename']} (Relevance Score: {r['score']:.4f}) ---\n"
+                f"Lines: {r['start']} to {r['end']}\n"
+                f"{r['code']}\n"
             )
             blocks.append(block)
 

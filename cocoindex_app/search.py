@@ -6,7 +6,7 @@ from pgvector.psycopg import register_vector
 
 from cocoindex_app.flow import code_index_flow, code_to_embedding
 
-TOP_K = 25
+TOP_K = 10
 
 @functools.cache
 def pool() -> ConnectionPool:
