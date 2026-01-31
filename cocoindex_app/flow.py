@@ -73,9 +73,17 @@ def get_ast_metadata(code: str, language_name: str):
         return {"symbols": [], "calls": []}
 
 @cocoindex.op.function()
-def extract_code_metadata(code: str, language: str) -> dict:
+def extract_code_metadata(code: str, language: str) -> cocoindex.Json:
     """Uses tree-sitter to extract rich structural metadata."""
     return get_ast_metadata(code, language)
+
+@cocoindex.op.function()
+def get_symbols(meta: dict) -> list[str]:
+    return meta.get("symbols", [])
+
+@cocoindex.op.function()
+def get_calls(meta: dict) -> list[str]:
+    return meta.get("calls", [])
 
 @cocoindex.transform_flow()
 def code_to_embedding(
@@ -135,8 +143,8 @@ def code_index_flow(
         with f["chunks"].row() as c:
             # Extract symbols and calls for this chunk
             c["meta"] = c["text"].transform(extract_code_metadata, language=f["language"])
-            c["symbols"] = c["meta"].transform(lambda m: m["symbols"])
-            c["calls"] = c["meta"].transform(lambda m: m["calls"])
+            c["symbols"] = c["meta"].transform(get_symbols)
+            c["calls"] = c["meta"].transform(get_calls)
 
             # Generate embedding
             c["embedding"] = c["text"].call(code_to_embedding)
@@ -161,6 +169,7 @@ def code_index_flow(
                 index_id=index_id,
             )
 
+    # Export to Postgres (Master Storage for all backends)
     collector.export(
         "code_embeddings",
         cocoindex.targets.Postgres(),
@@ -172,3 +181,6 @@ def code_index_flow(
             )
         ],
     )
+
+    # Query handlers are added to the code_index_flow object after definition
+    # See cocoindex_app/search.py

@@ -120,7 +120,77 @@ sequenceDiagram
 - **LLM**: LMStudio / OpenAI Compatible API
 - **Infrastructure**: Docker, Git
 
-## 📂 Project Structure
+### 5.1 Setup API
+Endpoint
+POST /setup
+
+Behavior
+- Enables `pgvector` extension in PostgreSQL.
+- Ensures `CODEBASE_ROOT` directory exists.
+
+Response
+{
+  "status": "environment_setup_complete",
+  "details": {
+    "pgvector": "enabled",
+    "codebase_root": "/data/repos"
+  }
+}
+
+### 5.2 Index API
+Endpoint
+POST /index
+
+Request
+{
+  "repo_url": "https://github.com/org/repo.git",
+  "branch": "main"
+}
+
+Behavior
+- Checkout repo
+- Set `CODEBASE_PATH`
+- Trigger `code_index_flow.update()` asynchronously in the background.
+- Return a unique `index_id` immediately.
+
+Response
+{
+  "index_id": "uuid",
+  "status": "indexing_started",
+  "message": "The codebase is being indexed in the background."
+}
+
+### 5.3 Status API
+Endpoint
+GET /status/{index_id}
+
+Behavior
+- Returns the current status of an indexing run.
+
+Response
+{
+  "index_id": "uuid",
+  "status": "started | completed | failed",
+  "repo_url": "...",
+  "branch": "...",
+  "created_at": "...",
+  "error": "optional error message"
+}
+
+### 1. Backend Configuration
+CodeMind supports multiple storage backends. You can switch between them by updating your `.env` file:
+
+- **PostgreSQL (Default)**: Uses `pgvector` for vector search and relational tables for metadata.
+- **FAISS + MongoDB**: Uses local `FAISS` files for high-speed vector search and `MongoDB` for flexible document metadata.
+
+```env
+# Multi-Storage Configuration
+STORAGE_BACKEND=postgres  # Options: postgres, faiss_mongo
+MONGODB_URI=mongodb://localhost:27017/codemind
+FAISS_INDEX_PATH=./data/faiss_index
+```
+
+### 2. Core Components
 - `api/`: REST API endpoints and request models.
 - `cocoindex_app/`: Core CocoIndex flow definitions and search logic.
 - `indexing/`: Git repository operations and directory management.

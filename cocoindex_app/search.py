@@ -25,47 +25,53 @@ async def search(
     branch: str | None = None,
 ) -> cocoindex.QueryOutput:
 
-    table_name = cocoindex.utils.get_target_default_name(
-        code_index_flow, "code_embeddings"
-    )
-
     query_vector = await code_to_embedding.eval_async(query)
+    backend = os.environ.get("STORAGE_BACKEND", "postgres")
 
-    where = []
-    params = [query_vector]
+    if backend == "faiss_mongo":
+        from memory_service.faiss_store import FAISSStore
+        faiss_store = FAISSStore()
+        # FAISS search
+        raw_results = faiss_store.search(query_vector, k=TOP_K)
+        # Filter by repo/branch if provided
+        if repo or branch:
+            raw_results = [
+                r for r in raw_results 
+                if (not repo or r.get("repo") == repo) and (not branch or r.get("branch") == branch)
+            ]
+        
+        # Convert to common format for reranking
+        rows = []
+        for r in raw_results:
+            rows.append((
+                r["filename"], r["language"], r["code"], r["start"], r["end"], 
+                r["symbols"], r["calls"], 1.0 - r["score"] # Score to distance
+            ))
+    else:
+        # Postgres Search
+        table_name = cocoindex.utils.get_target_default_name(
+            code_index_flow, "code_embeddings"
+        )
+        where = []
+        params = [query_vector]
+        if repo:
+            where.append("\"repo\" = %s")
+            params.append(repo)
+        if branch:
+            where.append("\"branch\" = %s")
+            params.append(branch)
 
-    if repo:
-        where.append("\"repo\" = %s")
-        params.append(repo)
-    if branch:
-        where.append("\"branch\" = %s")
-        params.append(branch)
-
-    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
-
-    sql = f"""
-        SELECT
-            "filename",
-            "language",
-            "code",
-            "start",
-            "end",
-            "symbols",
-            "calls",
-            "embedding" <=> %s AS distance
-        FROM {table_name}
-        {where_sql}
-        ORDER BY distance
-        LIMIT %s
-    """
-
-    params.append(TOP_K)
-
-    with pool().connection() as conn:
-        register_vector(conn)
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
-            rows = cur.fetchall()
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        sql = f"""
+            SELECT "filename", "language", "code", "start", "end", "symbols", "calls", "embedding" <=> %s AS distance
+            FROM {table_name} {where_sql} ORDER BY distance LIMIT %s
+        """
+        params.append(TOP_K)
+        with pool().connection() as conn:
+            register_vector(conn)
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                rows = cur.fetchall()
 
     results = []
     query_terms = set(query.lower().split())
@@ -74,8 +80,6 @@ async def search(
         filename, lang, code, start, end, symbols, calls, dist = r
         score = 1.0 - dist
         
-        # Hybrid Reranking Logic: 
-        # Boost if query terms exactly match definitions (symbols) or calls
         structural_match = False
         if symbols:
             if any(term in [s.lower() for s in symbols] for term in query_terms):
@@ -98,9 +102,7 @@ async def search(
             "structural_boost": structural_match
         })
 
-    # Sort again after boosting
     results.sort(key=lambda x: x["score"], reverse=True)
-
     return cocoindex.QueryOutput(
         query_info=cocoindex.QueryInfo(
             embedding=query_vector,
@@ -108,3 +110,25 @@ async def search(
         ),
         results=results[:TOP_K],
     )
+
+@code_index_flow.query_handler()
+async def get_all_embeddings():
+    """Returns all indexed data from the master Postgres storage."""
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT embedding, filename, location, start_line, end_line, code, symbols, calls, repo, branch FROM code_embeddings")
+            results = []
+            for row in cur.fetchall():
+                results.append({
+                    "embedding": row[0],
+                    "filename": row[1],
+                    "location": row[2],
+                    "start": row[3],
+                    "end": row[4],
+                    "text": row[5],
+                    "symbols": row[6],
+                    "calls": row[7],
+                    "repo": row[8],
+                    "branch": row[9]
+                })
+            return cocoindex.query_handler.QueryOutput(results=results)

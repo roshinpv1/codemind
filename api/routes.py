@@ -1,23 +1,30 @@
-from fastapi import APIRouter, HTTPException
+import os
+import shutil
+import uuid
+import datetime
+import subprocess
+import sys
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
+
 from foundation.engine import ReasoningEngine
-from llm.lmstudio_llm import LMStudioLLM
+from llm.factory import get_llm_client
 from policy.policy_engine import PolicyEngine
 from api.models import IndexRequest
 from indexing.git_utils import clone_repo
-import os
-import shutil
 from cocoindex_app.flow import code_index_flow
 from cocoindex_app.search import search, pool
+from memory_service.storage_manager import StorageManager
 
 router = APIRouter()
-engine = ReasoningEngine(LMStudioLLM())
+engine = ReasoningEngine(get_llm_client())
 policy = PolicyEngine()
+storage_manager = StorageManager()
 
 class Req(BaseModel):
     tenant: str
     repo: str
-    branch: str = "main" # Added default matching Request example
+    branch: str = "main"
     instruction: str
     context_query: str
     role: str = "senior_engineer"
@@ -25,19 +32,8 @@ class Req(BaseModel):
     constraints: dict = {}
 
 @router.post("/execute")
-async def execute(r: Req): # made async
-    # 5.3 Behavior: Perform search -> Build context -> Call LLM -> Return answer
-    # The ReasoningEngine seems to handle this?
-    # But wait, search API (5.2) returns results. Execute API (5.3) calls LLM.
-    # The Engine likely calls search internally? Or should I call search here?
-    # Engine signature: execute(tenant, repo, instruction, context_query, constraints)
-    # I assume engine handles search.
-    policy.check("user", r.instruction) # Role missing in request, assuming 'user' or implicit? Request has 'tenant', 'repo', 'branch'.
-    # Note: original code had 'role' in Req but user request example doesn't show 'role'.
-    # User Request: { "tenant": "demo", "repo": "repo", "branch": "main", "instruction": "...", "context_query": "..." }
-    # So I removed 'role' from Req and defaulted to something safe or omitted policy check if role not present.
-    # But keeping policy check implies security. I'll act as if role is not required or hardcode it.
-    
+async def execute(r: Req):
+    policy.check("user", r.instruction)
     return {"result": await engine.execute(
         r.tenant, r.repo, r.branch, r.instruction, r.context_query, r.constraints,
         role=r.role, task=r.task
@@ -54,52 +50,138 @@ async def search_endpoint(payload: dict):
     result = await search(query, repo=repo, branch=branch)
     return {"results": result.results}
 
-@router.post("/index")
-async def index_repo(req: IndexRequest):
+@router.post("/setup")
+def setup_environment():
+    # 1. Database Setup
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS indexing_status (
+                    index_id UUID PRIMARY KEY,
+                    repo_url TEXT NOT NULL,
+                    branch TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    error TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+    
+    # 2. Filesystem Setup
+    root = os.environ.get("CODEBASE_ROOT", "./data/repos")
+    if not os.path.exists(root):
+        os.makedirs(root, exist_ok=True)
+    
+    # 3. CocoIndex Setup
+    venv_python = sys.executable
     try:
-        meta = await clone_repo(req.repo_url, req.branch) if hasattr(clone_repo, '__await__') else clone_repo(req.repo_url, req.branch)
+        subprocess.run(
+            [venv_python, "-m", "cocoindex.cli", "setup", "-f", "cocoindex_app.flow"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        coco_status = "synced"
+    except subprocess.CalledProcessError as e:
+        coco_status = f"failed: {e.stderr}"
+    
+    # 4. MongoDB Setup
+    if os.environ.get("STORAGE_BACKEND") == "faiss_mongo":
+        try:
+            from memory_service.mongo_store import MongoStore
+            MongoStore()
+            mongo_status = "connected"
+        except Exception as e:
+            mongo_status = f"failed: {str(e)}"
+    else:
+        mongo_status = "skipped"
 
-        # Inject runtime metadata
+    return {
+        "status": "environment_setup_complete", 
+        "details": {
+            "pgvector": "enabled", 
+            "codebase_root": root,
+            "cocoindex": coco_status,
+            "mongodb": mongo_status
+        }
+    }
+
+async def run_indexing(index_id: str, repo_url: str, branch: str):
+    try:
+        meta = clone_repo(repo_url, branch)
         os.environ["CODEBASE_PATH"] = meta["path"]
         os.environ["REPO_NAME"] = meta["repo"]
         os.environ["BRANCH_NAME"] = meta["branch"]
         os.environ["INDEX_RUN_ID"] = meta["run_id"]
 
-        # Trigger update async
-        stats = await code_index_flow.update_async()
+        await code_index_flow.update_async()
 
+        if os.environ.get("STORAGE_BACKEND") == "faiss_mongo":
+            from memory_service.faiss_store import FAISSStore
+            import numpy as np
+            output = await code_index_flow.query("get_all_embeddings").eval_async()
+            faiss_store = FAISSStore()
+            faiss_store.reset()
+            embeddings = []
+            metadata = []
+            for item in output.results:
+                embeddings.append(item["embedding"])
+                meta_item = {k: v for k, v in item.items() if k != "embedding"}
+                metadata.append(meta_item)
+            if embeddings:
+                faiss_store.add(np.array(embeddings).astype('float32'), metadata)
+                faiss_store.save()
+
+        storage_manager.update_status(index_id, "completed")
+    except Exception as e:
+        print(f"Indexing failed for {index_id}: {e}")
+        storage_manager.update_status(index_id, "failed", error=str(e))
+
+@router.post("/index")
+async def index_repo(req: IndexRequest, background_tasks: BackgroundTasks):
+    try:
+        setup_environment()
+        index_id = str(uuid.uuid4())
+        storage_manager.create_status(index_id, req.repo_url, req.branch)
+        background_tasks.add_task(run_indexing, index_id, req.repo_url, req.branch)
         return {
             "status": "indexing_started",
-            "index_id": meta["run_id"],
-            "message": "The codebase is being indexed.",
+            "index_id": index_id,
+            "message": "The codebase is being indexed in the background.",
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.get("/status/{index_id}")
+async def get_index_status(index_id: str):
+    status = storage_manager.get_status(index_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Index ID not found")
+    if isinstance(status.get("created_at"), datetime.datetime):
+        status["created_at"] = status["created_at"].isoformat()
+    return {
+        "index_id": index_id,
+        "status": status["status"],
+        "error": status.get("error"),
+        "created_at": status.get("created_at"),
+        "repo_url": status["repo_url"],
+        "branch": status["branch"]
+    }
+
 @router.post("/reset")
 def reset_all_data():
-    """
-    Cleans up all stored data:
-    1. Truncates all tables in the database.
-    2. Deletes all repositories in CODEBASE_ROOT.
-    """
-    # 1. Database Cleanup
     with pool().connection() as conn:
         with conn.cursor() as cur:
-            # Get all tables in public schema
             cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
             tables = [r[0] for r in cur.fetchall()]
-            
             if tables:
-                # TRUNCATE all tables
-                # Use quoted identifiers to be safe
                 tables_sql = ", ".join([f'"{t}"' for t in tables])
                 cur.execute(f"TRUNCATE TABLE {tables_sql} CASCADE")
-    
-    # 2. Filesystem Cleanup
+                conn.commit()
+    storage_manager.reset_all()
     codebase_root = os.environ.get("CODEBASE_ROOT", "./data/repos")
     if os.path.exists(codebase_root):
-        # We want to keep the root dir but remove contents
         for item in os.listdir(codebase_root):
             item_path = os.path.join(codebase_root, item)
             try:
@@ -109,5 +191,4 @@ def reset_all_data():
                     shutil.rmtree(item_path)
             except Exception as e:
                 print(f"Failed to delete {item_path}. Reason: {e}")
-                
     return {"status": "setup_reset_complete"}
