@@ -9,25 +9,23 @@ CodeMind is a high-performance backend system designed to index source code repo
 - **Semantic Chunking**: Uses Tree-sitter aware recursive splitting to maintain code context within chunks.
 - **Full AST Parsing**: Uses `tree-sitter` to perform deep analysis of definitions (classes, functions) and call sites.
 - **Structural Metadata**: Captures symbols, function calls, and scopes to enable advanced structural search.
-- **Vector Embeddings**: Generates high-quality embeddings using `all-MiniLM-L6-v2`.
-- **Incremental Updates**: Smart re-indexing that only updates changed files, ensuring efficiency.
+- **Non-Blocking Execution**: Indexing runs in the background, providing immediate task IDs and status polling.
 
-### 2. Repository Management
-- **Git Integration**: Full support for cloning and pulling from remote Git repositories.
-- **Branch Isolation**: Distinct indexing and storage for different branches of the same repository.
-- **Isolate Storage**: Local repository caching with directory-level isolation.
+### 2. Multi-Storage Architecture
+- **PostgreSQL (pgvector)**: Standard relational storage for metadata and vector search.
+- **FAISS (Vector Store)**: High-speed local search using optimized vector indices on disk.
+- **MongoDB (Metadata Store)**: Flexible document storage for repository status and indexing logs.
 
-### 3. Semantic Search API
-- **NLP Queries**: Search code using natural language instead of just keywords.
-- **Hybrid Retrieval**: Combines vector similarity with structural metadata (symbols and calls) for higher precision.
-- **Structural Reranking**: Boosts results that contain exact matches for searched symbols or critical function calls.
-- **Metadata Filtering**: Filter results by repository, branch, or specific index run IDs.
-- **Rich Results**: Returns snippets with file paths, line ranges, and relevance scores.
+### 3. Unified LLM Provider
+- **Local Drivers**: Support for LMStudio (OpenAI-compatible) and Ollama.
+- **Enterprise Drivers**: Support for Organizational LLMs (Enterprise API).
+- **Apigee Integration**: Enterprise-grade OAuth 2.0 security, automated token management, and custom request headers.
+- **Dynamic Factory**: Automatically selects the best available provider based on environment configuration.
 
-### 4. RAG & Reasoning Engine
-- **Context Resolution**: Automatically retrieves and formats the most relevant code snippets for a given instruction.
-- **Role Overlays**: Supports different personas (e.g., Senior Engineer, Security Researcher) to tailor LLM responses.
-- **Constraint Enforcement**: Ensures LLM outputs follow specific formats (e.g., valid JSON) and safety rules.
+### 4. Hybrid Semantic Search
+- **NLP Queries**: Search code using natural language.
+- **Structural Boosting**: Vector similarity search enhanced by exact matches on AST symbols (definitions) and calls.
+- **Cross-Backend Search**: Seamlessly switches search logic between PostgreSQL and FAISS/MongoDB.
 
 ## 🏗️ System Architecture
 
@@ -39,161 +37,122 @@ graph TD
         FastAPI -->|Index Request| Git[Git Manager]
         Git -->|Clone/Pull| LocalRepo[(Local Repo Cache)]
         LocalRepo -->|Read| Flow[CocoIndex Flow]
-        Flow -->|Chunk/Embed| Embed[Sentence Transformers]
+        Flow -->|Chunk/Embed/AST| Embed[Sentence Transformers + Tree-sitter]
     end
     
     subgraph "Storage Layer"
         Flow -->|Upsert| DB[(PostgreSQL + pgvector)]
+        Flow -->|Sync| FAISS[(FAISS Index)]
+        Flow -->|Status| Mongo[(MongoDB)]
     end
     
     subgraph "Reasoning & Search"
         FastAPI -->|Search Query| Search[Search Engine]
-        Search -->|Vector Query| DB
+        Search -->|Vector + AST Query| DB
+        Search -->|Local Search| FAISS
         
         FastAPI -->|Execute/RAG| Engine[Reasoning Engine]
         Engine -->|Resolve Context| Search
-        Engine -->|Prompt + Context| LLM[LLM / LMStudio]
+        Engine -->|Prompt + Context| Factory[LLM Factory]
+        Factory -->|Provider Selection| LLM[Apigee / Local / Enterprise]
     end
 ```
 
-## 🔄 Indexing Flow
+## 🛠️ Configuration (.env)
 
-```mermaid
-flowchart TD
-    Start([Start Indexing]) --> GitOp{Clone or Update?}
-    GitOp -->|New| Clone[git clone --branch]
-    GitOp -->|Existing| Pull[git pull / reset]
-    
-    Clone --> Scan[Scan Files]
-    Pull --> Scan
-    
-    Scan --> Filter{Included Type?}
-    Filter -->|Yes| Process[Process File]
-    Filter -->|No| Skip[Skip File]
-    
-    Process --> Lang[Detect Language]
-    Lang --> Chunk[Recursive Chunking]
-    Chunk --> AST[Full AST Parsing]
-    AST --> Embed[Generate Vector Embedding]
-    Embed --> Upsert[Upsert to pgvector]
-    
-    Upsert --> Next{More Files?}
-    Next -->|Yes| Process
-    Next -->|No| End([End Indexing])
+### Backend Storage
+```env
+STORAGE_BACKEND=postgres  # Options: postgres, faiss_mongo
+COCOINDEX_DATABASE_URL=postgresql://user:pass@localhost:5432/codemind
+MONGODB_URI=mongodb://localhost:27017/codemind
+FAISS_INDEX_PATH=./data/faiss_index
+CODEBASE_ROOT=./data/repos
 ```
 
-## 📡 Request Sequence (RAG Execution)
+### LLM Provider
+```env
+LLM_PROVIDER=local  # Options: local, ollama, apigee, enterprise
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant A as FastAPI Router
-    participant E as Reasoning Engine
-    participant C as Context Engine
-    participant S as Search Service
-    participant D as PostgreSQL
-    participant L as LLM (LMStudio)
+# Local (LMStudio / OpenAI-compatible)
+LOCAL_LLM_URL=http://localhost:1234/v1
+LOCAL_LLM_MODEL=google/gemma-3n-e4b
 
-    U->>A: POST /execute (Instruction, Context Query)
-    A->>E: execute(...)
-    E->>C: resolve(query)
-    C->>S: get_context(query)
-    S->>S: Generate Query Embedding
-    S->>D: Vector Similarity Search
-    D-->>S: Top-K Fragments
-    S-->>C: Results
-    C-->>E: Formatted Context Blocks
-    E->>E: Construct System Prompt (Role + Task)
-    E->>L: Generate(Prompt + Context + Instruction)
-    L-->>E: Raw Response
-    E->>E: Enforce Constraints (JSON, etc.)
-    E-->>A: Final Answer
-    A-->>U: JSON Response
+# Ollama
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=llama-3.2-3b-instruct
+
+# Apigee (Organization)
+APIGEE_NONPROD_LOGIN_URL=https://...
+APIGEE_CONSUMER_KEY=...
+APIGEE_CONSUMER_SECRET=...
+ENTERPRISE_BASE_URL=https://...
+WF_USE_CASE_ID=...
+WF_CLIENT_ID=...
+WF_API_KEY=...
 ```
 
-## 🛠️ Technology Stack
-- **Language**: Python 3.12
-- **Framework**: FastAPI
-- **Indexing**: CocoIndex
-- **Embeddings**: SentenceTransformers (`all-MiniLM-L6-v2`)
-- **Database**: PostgreSQL 15+ with `pgvector`
-- **LLM**: LMStudio / OpenAI Compatible API
-- **Infrastructure**: Docker, Git
+## 📡 API Reference
 
-### 5.1 Setup API
-Endpoint
-POST /setup
+### 1. Setup Environment
+**POST** `/setup`
+Initializes database extensions, creates status tables, and ensures directory structures are ready.
 
-Behavior
-- Enables `pgvector` extension in PostgreSQL.
-- Ensures `CODEBASE_ROOT` directory exists.
-
-Response
-{
-  "status": "environment_setup_complete",
-  "details": {
-    "pgvector": "enabled",
-    "codebase_root": "/data/repos"
-  }
-}
-
-### 5.2 Index API
-Endpoint
-POST /index
-
-Request
+### 2. Index Repository
+**POST** `/index`
+```json
 {
   "repo_url": "https://github.com/org/repo.git",
   "branch": "main"
 }
-
-Behavior
-- Checkout repo
-- Set `CODEBASE_PATH`
-- Trigger `code_index_flow.update()` asynchronously in the background.
-- Return a unique `index_id` immediately.
-
-Response
+```
+**Response:**
+```json
 {
   "index_id": "uuid",
   "status": "indexing_started",
   "message": "The codebase is being indexed in the background."
 }
+```
 
-### 5.3 Status API
-Endpoint
-GET /status/{index_id}
-
-Behavior
-- Returns the current status of an indexing run.
-
-Response
+### 3. Check Indexing Status
+**GET** `/status/{index_id}`
+**Response:**
+```json
 {
   "index_id": "uuid",
   "status": "started | completed | failed",
   "repo_url": "...",
   "branch": "...",
-  "created_at": "...",
   "error": "optional error message"
 }
-
-### 1. Backend Configuration
-CodeMind supports multiple storage backends. You can switch between them by updating your `.env` file:
-
-- **PostgreSQL (Default)**: Uses `pgvector` for vector search and relational tables for metadata.
-- **FAISS + MongoDB**: Uses local `FAISS` files for high-speed vector search and `MongoDB` for flexible document metadata.
-
-```env
-# Multi-Storage Configuration
-STORAGE_BACKEND=postgres  # Options: postgres, faiss_mongo
-MONGODB_URI=mongodb://localhost:27017/codemind
-FAISS_INDEX_PATH=./data/faiss_index
 ```
 
-### 2. Core Components
+### 4. Semantic Search
+**POST** `/search`
+```json
+{
+  "query": "how is authentication handled?",
+  "repo": "my-repo",
+  "branch": "main"
+}
+```
+
+### 5. RAG Execute
+**POST** `/execute`
+```json
+{
+  "tenant": "demo",
+  "repo": "repo",
+  "instruction": "Explain the login flow",
+  "context_query": "authentication and user login",
+  "constraints": { "json": true }
+}
+```
+
+## 📂 Project Structure
 - `api/`: REST API endpoints and request models.
-- `cocoindex_app/`: Core CocoIndex flow definitions and search logic.
-- `indexing/`: Git repository operations and directory management.
-- `foundation/`: The RAG engine, prompt templates, and constraint logic.
-- `memory_service/`: High-level interface for search and context retrieval.
-- `llm/`: Drivers for different LLM providers.
+- `llm/`: Unified LLM drivers and provider factory.
+- `cocoindex_app/`: AST-aware indexing flows and hybrid search logic.
+- `memory_service/`: Multi-storage backends (FAISS, MongoDB, Postgres).
+- `foundation/`: Core reasoning engine and prompt templates.
+- `indexing/`: Git operations and file management.
