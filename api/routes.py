@@ -20,6 +20,8 @@ class Req(BaseModel):
     branch: str = "main" # Added default matching Request example
     instruction: str
     context_query: str
+    role: str = "senior_engineer"
+    task: str = "explain_code"
     constraints: dict = {}
 
 @router.post("/execute")
@@ -36,8 +38,9 @@ async def execute(r: Req): # made async
     # So I removed 'role' from Req and defaulted to something safe or omitted policy check if role not present.
     # But keeping policy check implies security. I'll act as if role is not required or hardcode it.
     
-    return {"result": engine.execute(
-        r.tenant, r.repo, r.branch, r.instruction, r.context_query, r.constraints
+    return {"result": await engine.execute(
+        r.tenant, r.repo, r.branch, r.instruction, r.context_query, r.constraints,
+        role=r.role, task=r.task
     )}
 
 @router.post("/search")
@@ -48,7 +51,7 @@ async def search_endpoint(payload: dict):
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
     
-    result = search(query, repo=repo, branch=branch)
+    result = await search(query, repo=repo, branch=branch)
     return {"results": result.results}
 
 @router.post("/index")

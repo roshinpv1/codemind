@@ -6,7 +6,7 @@ from pgvector.psycopg import register_vector
 
 from cocoindex_app.flow import code_index_flow, code_to_embedding
 
-TOP_K = 10
+TOP_K = 25
 
 @functools.cache
 def pool() -> ConnectionPool:
@@ -19,7 +19,7 @@ def pool() -> ConnectionPool:
         score="score",
     )
 )
-def search(
+async def search(
     query: str,
     repo: str | None = None,
     branch: str | None = None,
@@ -29,7 +29,7 @@ def search(
         code_index_flow, "code_embeddings"
     )
 
-    query_vector = code_to_embedding.eval(query)
+    query_vector = await code_to_embedding.eval_async(query)
 
     where = []
     params = [query_vector]

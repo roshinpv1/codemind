@@ -5,5 +5,5 @@ class MemoryService:
     def __init__(self):
         self.store = CocoIndexStore()
 
-    def get_context(self, tenant, repo, branch, query):
-        return self.store.search(tenant, repo, branch, query)
+    async def get_context(self, tenant, repo, branch, query):
+        return await self.store.search(tenant, repo, branch, query)
