@@ -243,40 +243,6 @@ export default function App() {
   }, []);
 
   // ... inside App component ...
-  const [livePipelines, setLivePipelines] = useState<any[]>([]);
-
-  // Polling for live pipelines
-  useEffect(() => {
-    let interval: any;
-    if (activeTab === 'status' || isIndexing) {
-      const fetchLive = async () => {
-        try {
-          const res = await fetch(`${API_BASE}/live`);
-          const data = await res.json();
-          setLivePipelines(data);
-
-          // If we are locally tracking an indexId, check if it's still in the live list.
-          // If not in live list, it might have finished.
-          if (indexingId) {
-            const stillRunning = data.find((p: any) => p.index_id === indexingId);
-            if (!stillRunning) {
-              // It finished (or failed), fetch final status once to updating local state if needed
-              // But simply knowing it's not live is enough to stop spinner?
-              // Actually better to keep polling status specifically if we want to show the specific result card?
-              // Let's rely on /live for the list view.
-              setIsIndexing(false);
-            }
-          }
-        } catch (e) {
-          console.error("Live fetch failed", e);
-        }
-      };
-
-      fetchLive(); // Initial call
-      interval = setInterval(fetchLive, 3000);
-    }
-    return () => clearInterval(interval);
-  }, [activeTab, isIndexing, indexingId]);
 
   const handleIndex = async () => {
     setIsIndexing(true);
@@ -290,7 +256,12 @@ export default function App() {
       const data = await res.json();
       setIndexingId(data.index_id);
       setIsModalOpen(false);
-      setActiveTab('status');
+      // Stay on the same tab (which has the history table)
+      // setActiveTab('status'); // REMOVED
+
+      // Refresh the table immediately
+      // The polling in the other useEffect will catch it, but we can also trigger a manual fetch if we refactored fetchData out.
+      // For now, the 3s polling on 'index' tab will pick it up quickly enough.
     } catch (e) {
       setIsIndexing(false);
       alert("Failed to start indexing");
@@ -372,14 +343,6 @@ export default function App() {
                 onClick={() => setActiveTab('index')}
                 icon={<Layers size={18} />}
                 label="Index Registry"
-              />
-              <SidebarLink
-                active={activeTab === 'status'}
-                onClick={() => setActiveTab('status')}
-                icon={<CheckCircle2 size={18} />}
-                label="Pipeline Status"
-                badge={isIndexing ? "Live" : undefined}
-                badgeVariant="info"
               />
               <SidebarLink
                 active={activeTab === 'execute'}
@@ -552,69 +515,76 @@ export default function App() {
                 </div>
 
                 <div className="space-y-8">
-                  <Card title="Indexed Assets Registry" icon={<Layers size={16} />}>
-                    <div className="space-y-4">
-                      {indexedRepos.length > 0 ? indexedRepos.map((repo, i) => (
-                        <div key={i} className="flex items-center justify-between p-4 bg-slate-50/50 rounded-xl border border-slate-100/50 hover:bg-white hover:border-primary/20 transition-all group">
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-slate-200 text-slate-400 group-hover:text-primary transition-colors focus-within:ring-2 focus-within:ring-primary/20">
-                              <Github size={20} />
-                            </div>
-                            <div className="text-left">
-                              <h4 className="text-sm font-black text-slate-800 uppercase tracking-tight">{repo.name}</h4>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <Badge variant="success">Indexed</Badge>
-                                <span className="text-[10px] text-slate-400 font-mono">{repo.branch}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <Button
-                            variant="outline"
-                            className="text-xs py-1.5 px-3 bg-white"
-                            icon={<Terminal size={12} />}
-                            onClick={() => {
-                              setExecRepo(repo.name);
-                              setExecBranch(repo.branch);
-                              setActiveTab('execute');
-                            }}
-                          >
-                            Open in Lab
-                          </Button>
-                        </div>
-                      )) : (
-                        <div className="py-12 border-2 border-dashed border-slate-100 rounded-2xl flex flex-col items-center gap-3">
-                          <Layers className="text-slate-200" size={32} />
-                          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">No assets indexed yet</p>
-                        </div>
-                      )}
-                    </div>
-                  </Card>
-
-                  <Card title="Indexing History Log" icon={<Activity size={16} />}>
+                  <Card title="Repository Indexing & History" icon={<Layers size={16} />}>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-sm text-slate-600">
                         <thead className="bg-slate-50 text-xs uppercase font-bold text-slate-400">
                           <tr>
-                            <th className="px-4 py-3">Time</th>
-                            <th className="px-4 py-3">Repo</th>
+                            <th className="px-4 py-3">Repository</th>
                             <th className="px-4 py-3">Branch</th>
                             <th className="px-4 py-3">Status</th>
-                            <th className="px-4 py-3">ID</th>
+                            <th className="px-4 py-3">Time</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {activity.map((row: any, i: number) => (
-                            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">{new Date(row.date).toLocaleString()}</td>
-                              <td className="px-4 py-3 font-bold text-slate-800">{row.repo}</td>
-                              <td className="px-4 py-3 text-slate-500">{row.branch}</td>
-                              <td className="px-4 py-3"><Badge variant={row.status === 'completed' ? 'success' : row.status === 'failed' ? 'error' : 'info'}>{row.status.replace(/_/g, ' ')}</Badge></td>
-                              <td className="px-4 py-3 font-mono text-[10px] text-slate-400" title={row.index_id}>{row.index_id?.substring(0, 8)}...</td>
-                            </tr>
-                          ))}
+                          {activity.map((row: any, i: number) => {
+                            const isProcessing = !['completed', 'failed'].includes(row.status);
+                            return (
+                              <tr key={i} className="hover:bg-slate-50/50 transition-colors group">
+                                <td className="px-4 py-3">
+                                  <div className="flex flex-col">
+                                    <span className="font-bold text-slate-800">{row.repo}</span>
+                                    <span className="text-[10px] text-slate-400 font-mono">{row.repo_url}</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <GitBranch size={12} className="text-slate-400" />
+                                    <span className="text-slate-600">{row.branch}</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant={row.status === 'completed' ? 'success' : row.status === 'failed' ? 'error' : 'info'}>
+                                      {isProcessing && <Loader2 className="w-3 h-3 animate-spin inline-block mr-1" />}
+                                      {row.status.replace(/_/g, ' ')}
+                                    </Badge>
+                                    {row.error && (
+                                      <div className="text-rose-500" title={row.error}><AlertCircle size={14} /></div>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 font-mono text-xs whitespace-nowrap text-slate-500">
+                                  {new Date(row.date).toLocaleString()}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  {row.status === 'completed' && (
+                                    <Button
+                                      variant="ghost"
+                                      className="h-8 px-3 text-xs ml-auto hover:bg-slate-100 hover:text-primary"
+                                      icon={<Terminal size={12} />}
+                                      onClick={() => {
+                                        setExecRepo(row.repo);
+                                        setExecBranch(row.branch);
+                                        setActiveTab('execute');
+                                      }}
+                                    >
+                                      Open
+                                    </Button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
                           {activity.length === 0 && (
                             <tr>
-                              <td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-xs italic">No history available</td>
+                              <td colSpan={5} className="px-4 py-12 text-center text-slate-400">
+                                <div className="flex flex-col items-center gap-2">
+                                  <Layers size={24} className="text-slate-300" />
+                                  <p className="text-xs font-medium">No indexing history found</p>
+                                </div>
+                              </td>
                             </tr>
                           )}
                         </tbody>
@@ -666,80 +636,6 @@ export default function App() {
                     </div>
                   </div>
                 </Modal>
-              </motion.div>
-            )}
-
-            {activeTab === 'status' && (
-              <motion.div
-                key="status"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="space-y-8 max-w-4xl mx-auto"
-              >
-                <header>
-                  <h2 className="text-2xl font-black text-slate-900 tracking-tight">Pipeline Logs</h2>
-                  <p className="text-slate-500 text-sm">Monitor the progress of background code analysis tasks.</p>
-                </header>
-
-                {!livePipelines.length ? (
-                  <div className="text-center py-20 bg-white border border-slate-200 border-dashed rounded-2xl flex flex-col items-center gap-4">
-                    <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-300">
-                      <Activity size={24} />
-                    </div>
-                    <p className="text-slate-400 text-sm font-medium">No active pipeline runners found.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    {livePipelines.map((p) => (
-                      <Card key={p.index_id}>
-                        <div className="flex items-center justify-between mb-8 pb-8 border-b border-slate-100">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-blue-50 text-blue-500">
-                              <Loader2 className="w-6 h-6 animate-spin" />
-                            </div>
-                            <div className="text-left">
-                              <div className="flex items-center gap-3">
-                                <h3 className="font-black text-lg text-slate-800 leading-none">RUNNING</h3>
-                                <Badge variant="info">{p.status}</Badge>
-                              </div>
-                              <p className="text-[10px] font-mono text-slate-400 mt-1 uppercase tracking-wider">{p.index_id}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-bold text-slate-700">{p.repo_url}</p>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 underline decoration-primary/30 underline-offset-4">{p.branch}</p>
-                          </div>
-                        </div>
-
-                        <div className="space-y-8 py-4 px-2">
-                          <TimelineStep
-                            label="Git Checkout & Clone"
-                            completed={true}
-                            active={false}
-                            desc="Cloning target repository and checking out specified branch."
-                            index={1}
-                          />
-                          <TimelineStep
-                            label="AST Expression Mapping"
-                            completed={false}
-                            active={true}
-                            desc="Extracting function definitions, class structures and call graphs."
-                            index={2}
-                          />
-                          <TimelineStep
-                            label="Vector Sync & Postgres Export"
-                            completed={false}
-                            active={false}
-                            desc="Generating semantic embeddings and committing to primary storage."
-                            index={3}
-                            isLast
-                          />
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                )}
               </motion.div>
             )}
 

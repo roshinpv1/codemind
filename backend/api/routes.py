@@ -119,7 +119,22 @@ async def run_indexing(index_id: str, repo_url: str, branch: str):
     try:
         storage_manager.update_status(index_id, "cloning")
         meta = clone_repo(repo_url, branch)
-        os.environ["CODEBASE_PATH"] = meta["path"]
+        
+        # --- Update Symlink for Flow ---
+        # The flow monitors ./data/index_proxy. We point this link to the new repo.
+        proxy_path = os.path.abspath(os.path.join(os.getcwd(), "data", "index_proxy"))
+        target_repo_path = os.path.abspath(meta["path"])
+        
+        if os.path.exists(proxy_path) or os.path.islink(proxy_path):
+            if os.path.isdir(proxy_path) and not os.path.islink(proxy_path):
+                 shutil.rmtree(proxy_path)
+            else:
+                 os.unlink(proxy_path)
+                 
+        os.symlink(target_repo_path, proxy_path)
+        # -------------------------------
+
+        os.environ["CODEBASE_PATH"] = target_repo_path
         os.environ["REPO_NAME"] = meta["repo"]
         os.environ["BRANCH_NAME"] = meta["branch"]
         os.environ["INDEX_RUN_ID"] = meta["run_id"]

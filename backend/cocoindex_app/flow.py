@@ -105,13 +105,20 @@ def code_index_flow(
     scope: cocoindex.DataScope,
 ) -> None:
     
-    codebase_path = os.environ.get("CODEBASE_PATH")
-    if not codebase_path or not os.path.exists(codebase_path):
-        pass
+    # Use a stable proxy path that we can swap out via symlink at runtime
+    # This allows us to re-point the flow to different repos without rebuilding the graph
+    PROXY_PATH = os.path.join(os.getcwd(), "data", "index_proxy")
+    
+    # Ensure it exists initially so constructor doesn't fail
+    if not os.path.exists(PROXY_PATH):
+        try:
+            os.makedirs(PROXY_PATH, exist_ok=True)
+        except Exception:
+            pass
 
     scope["files"] = flow.add_source(
         cocoindex.sources.LocalFile(
-            path=os.environ.get("CODEBASE_PATH", "/tmp/placeholder"), 
+            path=PROXY_PATH, 
             included_patterns=[
                 "**/*.py", "**/*.md", "**/*.mdx", "**/*.rs", "**/*.toml",
                 "**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx", 
