@@ -1,0 +1,256 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #ffffff;
+  --color-foreground: #0f172a;
+
+  --color-primary: #2563eb;
+  --color-primary-light: #eff6ff;
+  --color-primary-dark: #1e40af;
+
+  --color-secondary: #f8fafc;
+  --color-muted: #64748b;
+  --color-accent: #8b5cf6;
+
+  --color-border: #e2e8f0;
+  --color-input: #f1f5f9;
+
+  --radius-xl: 12px;
+  --radius-2xl: 18px;
+
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  --animate-fade-in: fadeIn 0.4s ease-out;
+  --animate-slide-up: slideUp 0.4s ease-out;
+  --animate-slide-right: slideRight 0.3s ease-out;
+
+  @keyframes fadeIn {
+    0% {
+      opacity: 0;
+    }
+
+    100% {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideUp {
+    0% {
+      transform: translateY(12px);
+      opacity: 0;
+    }
+
+    100% {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideRight {
+    0% {
+      transform: translateX(-10px);
+      opacity: 0;
+    }
+
+    100% {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+}
+
+:root {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+
+  color-scheme: light;
+  color: #0f172a;
+  background-color: #f8fafc;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: block;
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+}
+
+/* Glassmorphism Refined */
+.glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.glass-dark {
+  background: rgba(15, 23, 42, 0.03);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(15, 23, 42, 0.05);
+}
+
+/* Card Shadows */
+.card-shadow {
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  transition: box-shadow 0.2s ease;
+}
+
+.card-shadow:hover {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+/* Premium Gradient */
+.premium-gradient {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.primary-gradient {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e2e8f0;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #cbd5e1;
+}
+
+/* Typography Enhancements */
+h1,
+h2,
+h3,
+h4 {
+  letter-spacing: -0.02em;
+}
+
+.text-pretty {
+  text-wrap: pretty;
+}
+
+/* Animation Utilities */
+.stagger-1 {
+  animation-delay: 0.1s;
+}
+
+.stagger-2 {
+  animation-delay: 0.2s;
+}
+
+.stagger-3 {
+  animation-delay: 0.3s;
+}
+
+/* Modern Documentation Prose */
+.intel-prose {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: var(--slate-700);
+  line-height: 1.625;
+}
+
+.intel-prose h1,
+.intel-prose h2,
+.intel-prose h3 {
+  color: var(--slate-900);
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.intel-prose p {
+  margin-bottom: 1.25em;
+}
+
+.intel-prose table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 1.5em 0;
+  font-size: 0.8125rem;
+  border: 1px solid var(--slate-200);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.intel-prose th {
+  background: var(--slate-50);
+  color: var(--slate-600);
+  font-weight: 700;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.7rem;
+  border-bottom: 1px solid var(--slate-200);
+}
+
+.intel-prose td {
+  padding: 0.75rem 1rem;
+  color: var(--slate-700);
+  border-bottom: 1px solid var(--slate-100);
+  background: white;
+}
+
+.intel-prose tr:last-child td {
+  border-bottom: none;
+}
+
+.intel-prose blockquote {
+  border-left: 4px solid var(--primary);
+  background: var(--primary-light);
+  padding: 1rem 1.5rem;
+  border-radius: 0 0.75rem 0.75rem 0;
+  font-style: italic;
+  margin: 1.5em 0;
+}
+
+.intel-prose ul,
+.intel-prose ol {
+  margin-bottom: 1.25em;
+  padding-left: 1.5em;
+}
+
+.intel-prose li {
+  margin-bottom: 0.5em;
+}
+
+.intel-prose code:not(pre code) {
+  background: var(--slate-50);
+  color: var(--primary);
+  padding: 0.2em 0.4em;
+  border-radius: 0.375em;
+  font-weight: 600;
+  font-size: 0.85em;
+}
+
+.intel-prose pre {
+  margin: 1.5em 0;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
