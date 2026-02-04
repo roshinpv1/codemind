@@ -52,29 +52,36 @@ async def search_endpoint(payload: dict):
 
 @router.post("/setup")
 def setup_environment():
-    # 1. Database Setup
-    with pool().connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS indexing_status (
-                    index_id UUID PRIMARY KEY,
-                    repo_url TEXT NOT NULL,
-                    branch TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    error TEXT,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    namespace TEXT DEFAULT 'default'
-                )
-            """)
-            # Migration: Add namespace column if not exists
-            try:
-                cur.execute("ALTER TABLE indexing_status ADD COLUMN namespace TEXT DEFAULT 'default'")
-            except Exception:
-                # Column likely exists, ignore error
-                conn.rollback()
-            else:
-                conn.commit()
+    # 1. Database Setup (Only if postgres is active)
+    backend = os.environ.get("STORAGE_BACKEND", "postgres")
+    meta_store = os.environ.get("METADATA_STORE", "sqlite" if backend == "lancedb" else "postgres")
+    
+    if meta_store == "postgres":
+        try:
+            with pool().connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS indexing_status (
+                            index_id UUID PRIMARY KEY,
+                            repo_url TEXT NOT NULL,
+                            branch TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            error TEXT,
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                            namespace TEXT DEFAULT 'default'
+                        )
+                    """)
+                    # Migration: Add namespace column if not exists
+                    try:
+                        cur.execute("ALTER TABLE indexing_status ADD COLUMN namespace TEXT DEFAULT 'default'")
+                    except Exception:
+                        # Column likely exists, ignore error
+                        conn.rollback()
+                    else:
+                        conn.commit()
+        except Exception as e:
+            print(f"Postgres setup failed (ignoring as it might not be the active backend): {e}")
     
     # 2. Filesystem Setup
     root = os.environ.get("CODEBASE_ROOT", "./data/repos")
@@ -108,7 +115,8 @@ def setup_environment():
     return {
         "status": "environment_setup_complete", 
         "details": {
-            "pgvector": "enabled", 
+            "backend": backend,
+            "meta_store": meta_store,
             "codebase_root": root,
             "cocoindex": coco_status,
             "mongodb": mongo_status
@@ -252,14 +260,22 @@ async def get_executions(repo: str = None, limit: int = 50):
 
 @router.post("/reset")
 def reset_all_data():
-    with pool().connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
-            tables = [r[0] for r in cur.fetchall()]
-            if tables:
-                tables_sql = ", ".join([f'"{t}"' for t in tables])
-                cur.execute(f"TRUNCATE TABLE {tables_sql} CASCADE")
-                conn.commit()
+    backend = os.environ.get("STORAGE_BACKEND", "postgres")
+    meta_store = os.environ.get("METADATA_STORE", "sqlite" if backend == "lancedb" else "postgres")
+    
+    if meta_store == "postgres" or backend == "postgres":
+        try:
+            with pool().connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+                    tables = [r[0] for r in cur.fetchall()]
+                    if tables:
+                        tables_sql = ", ".join([f'"{t}"' for t in tables])
+                        cur.execute(f"TRUNCATE TABLE {tables_sql} CASCADE")
+                        conn.commit()
+        except Exception:
+            pass
+            
     storage_manager.reset_all()
     codebase_root = os.environ.get("CODEBASE_ROOT", "./data/repos")
     if os.path.exists(codebase_root):

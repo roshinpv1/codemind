@@ -1,15 +1,13 @@
 import os
 import functools
 import cocoindex
-from psycopg_pool import ConnectionPool
-from pgvector.psycopg import register_vector
-
 from cocoindex_app.flow import code_index_flow, code_to_embedding
 
 TOP_K = 50
 
 @functools.cache
-def pool() -> ConnectionPool:
+def pool():
+    from psycopg_pool import ConnectionPool
     return ConnectionPool(os.environ["COCOINDEX_DATABASE_URL"])
 
 
@@ -88,6 +86,7 @@ async def search(
 
     else:
         # Postgres Search
+        from pgvector.psycopg import register_vector
         table_name = cocoindex.utils.get_target_default_name(
             code_index_flow, "code_embeddings"
         )

@@ -1,10 +1,10 @@
 import os
-from pymongo import MongoClient
 from datetime import datetime
 import uuid
 
 class MongoStore:
     def __init__(self):
+        from pymongo import MongoClient
         self.uri = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/codemind")
         self.client = MongoClient(self.uri)
         self.db = self.client.get_database()
